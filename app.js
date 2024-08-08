@@ -16,7 +16,10 @@ app.use(cors());
 const connections = {};
 const users = {};
 const admins = [];
+const students = [];
 let isAdmin = false;
+let codeblocks = [];
+let errorMessage;
 
 const client = new MongoClient(MONGODB_URI, {
   serverApi: {
@@ -26,8 +29,35 @@ const client = new MongoClient(MONGODB_URI, {
   },
 });
 
-admins.length = 4;
-admins.fill(0);
+const fetchCodeBlocksFromDb = async () => {
+  try {
+    await client.connect();
+    await client.db("admin").command({ ping: 1 });
+    console.log("Successfully connected to MongoDB");
+    const db = client.db("BeTher");
+    codeblocks = await db.collection("CodeBlocks").find({}).toArray();
+  } catch (error) {
+    errorMessage = error.message;
+    console.log(errorMessage);
+  } finally {
+    // Ensures that the client will close when you finish/error
+    await client.close();
+  }
+};
+
+const fillArrays = () => {
+  if (codeblocks) {
+    admins.length = codeblocks.length;
+    students.length = codeblocks.length;
+    admins.fill(0);
+    students.fill(0);
+  }
+};
+
+const initializeServer = async () => {
+  await fetchCodeBlocksFromDb();
+  fillArrays();
+};
 
 // endpoints
 app.get("/", (req, res) => {
@@ -35,25 +65,12 @@ app.get("/", (req, res) => {
 });
 
 app.get("/codeblocks", async (req, res) => {
-  try {
-    await client.connect();
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
-    // Access my specific collection
-    const db = client.db("BeTher");
-    const items = await db.collection("CodeBlocks").find({}).toArray();
-
-    //response
+  if (codeblocks) {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(items)); // Send code blocks as a JSON response
-  } catch (error) {
+    res.end(JSON.stringify(codeblocks));
+  } else {
     res.writeHead(500, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: error.message }));
-  } finally {
-    // Ensures that the client will close when you finish/error
-    await client.close();
+    res.end(JSON.stringify({ error: errorMessage }));
   }
 });
 
@@ -64,62 +81,68 @@ app.get("/numOfClients", (req, res) => {
 
 // webSocket server
 
-const broadcast = () => {
+const broadcast = (type, data) => {
   Object.keys(connections).forEach((uuid) => {
     const connection = connections[uuid];
-    const message = JSON.stringify(users);
+    const messageData = { type: type, data: data };
+    const message = JSON.stringify(messageData);
     connection.send(message);
   });
 };
 
 const handleMessage = (bytes, uuid) => {
   const message = JSON.parse(bytes.toString());
-  users[uuid].state = message;
-  const user = users[uuid];
-  broadcast();
-  //   console.log(
-  //     `${user.username} updated their updated state: ${JSON.stringify(
-  //       user.state
-  //     )}`
-  //   );
+  if (message.type === 2 || message.type === 3) {
+    users[uuid].state = message.data;
+    broadcast(2, users);
+  } else if (message.type === 4) {
+    handleClose(uuid, message.data.id, message.data.isAdmin);
+  }
 };
 
-const handleClose = (uuid) => {
-  console.log(`${users[uuid].username} disconnected`);
+const handleClose = (uuid, roomid, isAdmin) => {
+  //console.log(`${users[uuid].username} disconnected`);
+  //console.log("leaving room" + roomid);
+  if (isAdmin) {
+    admins[roomid - 1] = 0;
+    broadcast(5, roomid);
+    students[roomid - 1] = 0;
+  } else {
+    students[roomid - 1]--;
+  }
+  broadcast(3, students);
   delete connections[uuid];
   delete users[uuid];
-  broadcast();
 };
 
 wsServer.on("connection", (connection, request) => {
-  console.log(admins);
+  // console.log(admins);
   const { roomid } = url.parse(request.url, true).query;
-  console.log(roomid);
-  console.log(`${roomid} connected`);
   if (admins[roomid - 1] === 0) {
     admins[roomid - 1] = 1;
     isAdmin = true;
   } else {
     isAdmin = false;
+    students[roomid - 1]++;
   }
-  console.log(admins);
-  console.log(isAdmin);
   const uuid = uuidv4();
   connections[uuid] = connection;
   users[uuid] = {
     isAdmin: isAdmin,
     state: {},
   };
-  console.log(users[uuid]);
-  const message = JSON.stringify(users[uuid]);
+  const messageData = {
+    type: 1,
+    data: users[uuid],
+  };
+  const message = JSON.stringify(messageData);
   connection.send(message);
-  console.log(message);
-  //broadcast();
+  broadcast(3, students);
 
   connection.on("message", (message) => handleMessage(message, uuid));
-  connection.on("close", () => handleClose(uuid));
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`Server is listening on port ${PORT}`);
+  initializeServer();
 });
