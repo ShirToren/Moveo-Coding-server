@@ -13,10 +13,6 @@ app.use(cors());
 var codeblocks;
 
 // endpoints
-app.get("/", (req, res) => {
-  res.send("Hello World! This is an Express server with WebSocket.");
-});
-
 app.get("/codeblocks", async (req, res) => {
   if (codeblocks) {
     res.writeHead(200, { "Content-Type": "application/json" });
@@ -27,6 +23,7 @@ app.get("/codeblocks", async (req, res) => {
       codeblocks = result.codeblocks;
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(codeblocks));
+      //Fill admins ans students arrays - using in the ws server
       fillArrays(codeblocks.length);
     } else {
       const errorMessage = result.errorMessage;
