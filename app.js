@@ -8,7 +8,7 @@ const cors = require("cors");
 const app = express();
 const server = http.createServer(app);
 startWebSocketServer(server);
-const PORT = process.env.PORT || 8000;
+const PORT = process.env.PORT || 8080;
 app.use(cors());
 var codeblocks;
 
