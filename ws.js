@@ -55,11 +55,27 @@ const broadcast = (type, data) => {
   });
 };
 
+const broadcastCodeUpdate = (senderUuid, data) => {
+  Object.keys(connections).forEach((uuid) => {
+    if (uuid !== senderUuid) {
+      console.log("sends to: " + uuid);
+      const connection = connections[uuid];
+      const messageData = { type: "codeUpdate", data: data };
+      const message = JSON.stringify(messageData);
+      connection.send(message);
+    }
+  });
+};
+
 const handleMessage = (bytes, uuid) => {
   const message = JSON.parse(bytes.toString());
-  if (message.type === "codeUpdate" || message.type === "clientUpdate") {
+  if (message.type === "codeUpdate") {
+    console.log("message from: " + uuid);
     users[uuid].state = message.data;
-    broadcast("codeUpdate", users);
+    broadcastCodeUpdate(uuid, users);
+  } else if (message.type === "clientUpdate") {
+    users[uuid].state = message.data;
+    broadcast("clientUpdate", users);
   } else if (message.type === "exit") {
     handleClose(uuid, message.data.id);
   }
